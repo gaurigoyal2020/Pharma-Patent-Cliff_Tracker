@@ -1,19 +1,17 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "main": "index.js",
   "type": "module",
+  "description": "Patent Cliff Tracker API",
+  "main": "server.js",
   "scripts": {
-    "dev": "nodemon src/server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "dev": "node --watch --experimental-sqlite server.js",
+  "start": "node --experimental-sqlite server.js",
+  "migrate": "node --experimental-sqlite src/config/migrate.js",
+  "import": "node --experimental-sqlite src/services/importData.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
   "dependencies": {
     "bcrypt": "^6.0.0",
-    "better-sqlite3": "^12.6.2",
     "cors": "^2.8.6",
     "csv-parser": "^3.2.0",
     "dotenv": "^17.2.4",

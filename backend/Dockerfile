@@ -1,18 +1,20 @@
-FROM node:18-alpine
-
-# better-sqlite3 is a native module, needs build tools
-RUN apk add --no-cache python3 make g++
+FROM node:20-alpine
 
 WORKDIR /app
 
-COPY package*.json ./
+# Install build tools needed for better-sqlite3 (native module)
+RUN apk add --no-cache python3 make g++
+
+# Copy package files and install
+COPY package.json package-lock.json* ./
 RUN npm install
 
+# Copy source
 COPY . .
 
-# Make sure the data folder exists
+# Create data directory (will be overridden by volume mount)
 RUN mkdir -p /app/data
 
-EXPOSE 5000
-
-CMD ["npx", "nodemon", "src/server.js"]
+# Run migration (creates schema + seeds from CSV) on first start
+# The entrypoint checks if the DB already exists to avoid re-seeding
+CMD ["sh", "-c", "node src/config/migrate.js && node server.js"]

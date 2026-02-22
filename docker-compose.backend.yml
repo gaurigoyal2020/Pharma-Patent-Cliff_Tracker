@@ -3,18 +3,38 @@ version: '3.8'
 services:
   backend:
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
-    container_name: patent_cliff_backend
+    container_name: patent-cliff-backend
     ports:
       - "5000:5000"
     environment:
-      JWT_SECRET: ${JWT_SECRET}
+      - PORT=5000
+      - NODE_ENV=development
+      - FRONTEND_URL=http://localhost:5173
+      # DB_PATH points inside the container — the volume maps it to ./backend/data on your PC
+      - DB_PATH=/app/data/patent_tracker.db
+      - JWT_SECRET=change_me_in_production
     volumes:
-      # Your database.db file lives in ./data on your hard disk.
-      # The container reads/writes the same file.
-      # You can open ./data/database.db in TablePlus or DB Browser at any time.
-      - ./data:/app/data
-      # Hot-reload your source changes without rebuilding
-      - ./src:/app/src
-      - /app/node_modules
+      # THIS IS THE KEY LINE:
+      # ./backend/data on your PC ↔ /app/data inside the container
+      # The SQLite file lives here. Your teammate can also mount this same folder.
+      - ./backend/data:/app/data
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: patent-cliff-frontend
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://localhost:5000/api
+    restart: unless-stopped
+
+# No named volumes needed — we use a bind mount (the local folder)
+# This means the DB file is always visible in ./backend/data/patent_tracker.db
+# You can open it with DB Browser for SQLite to inspect it directly

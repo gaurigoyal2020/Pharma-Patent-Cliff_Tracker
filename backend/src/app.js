@@ -1,23 +1,25 @@
-// src/app.js
 import express from 'express';
 import cors from 'cors';
-import { runMigrations } from './config/migrate.js';
-import authRoutes from './routes/auth.js';
 import drugRoutes from './routes/drugs.js';
 
 const app = express();
 
-// Create tables on startup if they don't exist yet
-runMigrations();
-
-app.use(cors());
+app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:5173' }));
 app.use(express.json());
 
-app.use('/api/auth', authRoutes);
 app.use('/api/drugs', drugRoutes);
 
-app.get('/', (req, res) => {
-  res.json({ message: 'Patent Cliff backend running ✅' });
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+app.use((req, res) => {
+  res.status(404).json({ success: false, error: `Route ${req.method} ${req.path} not found` });
+});
+
+app.use((err, req, res, next) => {
+  console.error('[Error]', err.message);
+  res.status(500).json({ success: false, error: 'Internal server error' });
 });
 
 export default app;

@@ -1,21 +1,16 @@
-// src/config/database.js
-import Database from 'better-sqlite3';
-import path from 'path';
+import { DatabaseSync } from 'node:sqlite';
+import { mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const DB_PATH = process.env.DB_PATH || join(__dirname, '../../data/patent_tracker.db');
 
-// DB file lives in /app/data/database.db inside the container,
-// which maps to ./data/database.db on your hard disk via the Docker volume.
-const DB_PATH = path.join(__dirname, '../../data/database.db');
+mkdirSync(dirname(DB_PATH), { recursive: true });
 
-const db = new Database(DB_PATH);
+const db = new DatabaseSync(DB_PATH);
+db.exec('PRAGMA foreign_keys = ON');
 
-// Better performance settings
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
-
-console.log(`✅ SQLite connected: ${DB_PATH}`);
+console.log(`[DB] SQLite at: ${DB_PATH}`);
 
 export default db;

@@ -1,130 +1,95 @@
-// src/services/importData.js
-import 'dotenv/config';
-import Database from 'better-sqlite3';
-import fs from 'fs';
-import csvParser from 'csv-parser';
-import path from 'path';
+import { createReadStream } from 'fs';
 import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import db from '../config/database.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const DB_PATH = path.join(__dirname, '../../data/database.db');
-const db = new Database(DB_PATH);
-db.pragma('foreign_keys = ON');
-
-function categorizeDrug(genericName, brandName) {
-  const name = (genericName || brandName || '').toLowerCase();
-  if (/statin|atorva|rosuva|simva|lovasta/.test(name)) return 'cholesterol';
-  if (/insulin|metformin|glipizide|sitagliptin|gluc/.test(name)) return 'diabetes';
-  if (/apixaban|rivaroxaban|warfarin|heparin|dabigatran|ticagrelor/.test(name)) return 'anticoagulant';
-  if (/adalimumab|etanercept|rituximab|infliximab/.test(name)) return 'immunosuppressant';
-  if (/omeprazole|esomeprazole|pantoprazole|lansoprazole/.test(name)) return 'acid reflux';
-  if (/amoxicillin|azithromycin|ciprofloxacin|doxycycline/.test(name)) return 'antibiotic';
-  if (/ibuprofen|naproxen|celecoxib|diclofenac/.test(name)) return 'pain relief';
-  if (/amlodipine|lisinopril|metoprolol|atenolol|losartan/.test(name)) return 'cardiovascular';
-  return 'other';
-}
-
-function calculateStatus(expiryDate) {
-  if (!expiryDate) return 'active';
-  return new Date(expiryDate) < new Date() ? 'expired' : 'active';
-}
-
-async function importFromMasterDataset(csvPath) {
-  console.log(`\n📊 Reading: ${csvPath}`);
-
-  const drugs = new Map();
-  const patents = [];
-
-  // Read CSV
-  await new Promise((resolve, reject) => {
-    fs.createReadStream(csvPath)
-      .pipe(csvParser())
-      .on('data', (row) => {
-        const drugKey = `${row.app_no}_${row.product_no}`;
-
-        if (!drugs.has(drugKey)) {
-          drugs.set(drugKey, {
-            generic_name: row.generic_name || 'Unknown',
-            brand_name: row.brand_name || null,
-            strength: row.strength || null,
-            dosage_form: row.route || null,
-            category: categorizeDrug(row.generic_name, row.brand_name),
-            fda_application_number: row.app_no,
-          });
+function parseCSV(filePath) {
+  return new Promise((resolve, reject) => {
+    const lines = [];
+    let header = null;
+    let buffer = '';
+    const stream = createReadStream(filePath, 'utf8');
+    stream.on('data', chunk => { buffer += chunk; });
+    stream.on('end', () => {
+      const rawLines = buffer.split('\n');
+      for (const raw of rawLines) {
+        const line = raw.trim().replace(/\r$/, '');
+        if (!line) continue;
+        const fields = [];
+        let inQuote = false;
+        let current = '';
+        for (let i = 0; i < line.length; i++) {
+          const ch = line[i];
+          if (ch === '"') { inQuote = !inQuote; }
+          else if (ch === ',' && !inQuote) { fields.push(current.trim()); current = ''; }
+          else { current += ch; }
         }
-
-        if (row.patent_number && row.patent_expiry_date) {
-          patents.push({
-            drugKey,
-            patent_number: row.patent_number,
-            expiry_date: row.patent_expiry_date,
-            status: calculateStatus(row.patent_expiry_date),
-          });
+        fields.push(current.trim());
+        if (!header) {
+          header = fields;
+        } else {
+          const row = {};
+          header.forEach((col, i) => { row[col] = (fields[i] || '').replace(/^"|"$/g, '').trim(); });
+          lines.push(row);
         }
-      })
-      .on('end', resolve)
-      .on('error', reject);
+      }
+      resolve(lines);
+    });
+    stream.on('error', reject);
   });
-
-  console.log(`   Found ${drugs.size} drugs, ${patents.length} patents`);
-
-  // Insert drugs (use a transaction for speed)
-  const insertDrug = db.prepare(
-    `INSERT INTO drugs (generic_name, brand_names, strength, dosage_form, category, fda_application_number)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  );
-
-  const drugIdMap = new Map();
-
-  const insertAllDrugs = db.transaction(() => {
-    for (const [key, drug] of drugs) {
-      const result = insertDrug.run(
-        drug.generic_name,
-        drug.brand_name ? JSON.stringify([drug.brand_name]) : JSON.stringify([]),
-        drug.strength,
-        drug.dosage_form,
-        drug.category,
-        drug.fda_application_number
-      );
-      drugIdMap.set(key, result.lastInsertRowid);
-    }
-  });
-
-  insertAllDrugs();
-  console.log(`✅ Imported ${drugs.size} drugs`);
-
-  // Insert patents
-  const insertPatent = db.prepare(
-    `INSERT OR IGNORE INTO patents (drug_id, patent_number, patent_type, expiry_date, status)
-     VALUES (?, ?, ?, ?, ?)`
-  );
-
-  let imported = 0;
-  const insertAllPatents = db.transaction(() => {
-    for (const patent of patents) {
-      const drugId = drugIdMap.get(patent.drugKey);
-      if (!drugId) continue;
-      const result = insertPatent.run(
-        drugId,
-        patent.patent_number,
-        'substance',
-        patent.expiry_date,
-        patent.status
-      );
-      if (result.changes > 0) imported++;
-    }
-  });
-
-  insertAllPatents();
-  console.log(`✅ Imported ${imported} patents`);
-  console.log('\n🎉 Import complete!');
-
-  db.close();
 }
 
-const csvPath = process.argv[2] || path.join(__dirname, '../../data/master_dataset.csv');
-importFromMasterDataset(csvPath)
-  .then(() => process.exit(0))
-  .catch((err) => { console.error(err); process.exit(1); });
+export async function importMasterDataset() {
+  const csvPath = join(__dirname, '../../data/master_dataset.csv');
+  console.log(`[Import] Reading CSV from: ${csvPath}`);
+
+  const rows = await parseCSV(csvPath);
+  console.log(`[Import] Parsed ${rows.length} rows`);
+
+  const insertDrug = db.prepare(`
+    INSERT OR IGNORE INTO drugs (app_no, brand_name, generic_name, app_type)
+    VALUES (?, ?, ?, ?)
+  `);
+  const insertProduct = db.prepare(`
+    INSERT OR IGNORE INTO products (drug_id, app_no, product_no, strength, route, approval_date)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  const insertPatent = db.prepare(`
+    INSERT OR IGNORE INTO patents (drug_id, app_no, product_no, patent_number, patent_expiry_date, days_until_expiry)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  const getDrugId = db.prepare(`SELECT id FROM drugs WHERE app_no = ?`);
+
+  db.exec('BEGIN');
+  let drugsInserted = 0, productsInserted = 0, patentsInserted = 0;
+
+  try {
+    for (const row of rows) {
+      insertDrug.run(row.app_no, row.brand_name, row.generic_name, row.app_type || 'N');
+
+      const drug = getDrugId.get(row.app_no);
+      if (!drug) { console.warn(`[Import] Could not find drug for app_no=${row.app_no}`); continue; }
+      drugsInserted++;
+
+      insertProduct.run(drug.id, row.app_no, row.product_no, row.strength, row.route, row.approval_date);
+      productsInserted++;
+
+      insertPatent.run(
+        drug.id, row.app_no, row.product_no, row.patent_number,
+        row.patent_expiry_date, parseInt(row.days_until_expiry) || null
+      );
+      patentsInserted++;
+    }
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    throw err;
+  }
+
+  console.log(`[Import] ✅ Done!`);
+  console.log(`         Drugs inserted:    ${drugsInserted}`);
+  console.log(`         Products inserted: ${productsInserted}`);
+  console.log(`         Patents inserted:  ${patentsInserted}`);
+}
