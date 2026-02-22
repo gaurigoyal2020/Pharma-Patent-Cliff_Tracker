@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: patent_cliff_backend
+    ports:
+      - "5000:5000"
+    environment:
+      JWT_SECRET: ${JWT_SECRET}
+    volumes:
+      # Your database.db file lives in ./data on your hard disk.
+      # The container reads/writes the same file.
+      # You can open ./data/database.db in TablePlus or DB Browser at any time.
+      - ./data:/app/data
+      # Hot-reload your source changes without rebuilding
+      - ./src:/app/src
+      - /app/node_modules
