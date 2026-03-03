@@ -4,10 +4,14 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { createUser, findUserByEmail, findUserById, getAllUsers } from '../models/user.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
+import rateLimit from 'express-rate-limit';
 
 const router = Router();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'change_this_secret_in_production';
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is not set');
+}
+const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 const SALT_ROUNDS = 12;
 
@@ -20,17 +24,39 @@ function signToken(user) {
   );
 }
 
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,                   // 10 attempts
+  message: { success: false, error: 'Too many attempts, try again later' }
+});
+
 // ── POST /api/auth/register ───────────────────────────────────────────────────
 // Body: { name, email, password }
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiter, async (req, res) => {
   const { name, email, password } = req.body;
 
   if (!name || !email || !password) {
     return res.status(400).json({ success: false, error: 'name, email, and password are required' });
   }
 
-  if (password.length < 8) {
-    return res.status(400).json({ success: false, error: 'Password must be at least 8 characters' });
+  if (name.trim().length < 2 || name.trim().length > 100) {
+    return res.status(400).json({ success: false, error: 'Name must be between 2 and 100 characters' });
+  }
+
+  const passwordRules = {
+    minLength: password.length >= 8,
+    hasUpperCase: /[A-Z]/.test(password),
+    hasLowerCase: /[a-z]/.test(password),
+    hasNumber: /[0-9]/.test(password),
+    hasSpecialChar: /[!@#$%^&*(),.?":{}|<>]/.test(password),
+  };
+
+  const failedRules = Object.entries(passwordRules)
+    .filter(([_, passes]) => !passes)
+    .map(([rule]) => rule);
+
+  if (failedRules.length > 0) {
+    return res.status(400).json({ success: false, error: 'Password does not meet strength requirements' });
   }
 
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -62,7 +88,7 @@ router.post('/register', async (req, res) => {
 
 // ── POST /api/auth/login ──────────────────────────────────────────────────────
 // Body: { email, password }
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
