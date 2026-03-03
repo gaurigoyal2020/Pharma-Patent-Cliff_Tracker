@@ -57,8 +57,8 @@ export async function importMasterDataset() {
     VALUES (?, ?, ?, ?, ?, ?)
   `);
   const insertPatent = db.prepare(`
-    INSERT OR IGNORE INTO patents (drug_id, app_no, product_no, patent_number, patent_expiry_date, days_until_expiry)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO patents (drug_id, app_no, product_no, patent_number, patent_expiry_date)
+    VALUES (?, ?, ?, ?, ?)
   `);
   const getDrugId = db.prepare(`SELECT id FROM drugs WHERE app_no = ?`);
 
@@ -78,7 +78,7 @@ export async function importMasterDataset() {
 
       insertPatent.run(
         drug.id, row.app_no, row.product_no, row.patent_number,
-        row.patent_expiry_date, parseInt(row.days_until_expiry) || null
+        row.patent_expiry_date
       );
       patentsInserted++;
     }

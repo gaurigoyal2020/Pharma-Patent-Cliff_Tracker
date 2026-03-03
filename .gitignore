@@ -24,3 +24,5 @@ build/
 
 # ===== Docker =====
 docker-data/
+
+backend/data/*.db
