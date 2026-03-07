@@ -85,4 +85,4 @@ def get_insights():
 
 if __name__ == '__main__':
     print("FLASK ML BACKEND STARTING on port 5000")
-    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+    app.run(host='0.0.0.0', port=5001, debug=False, use_reloader=False)
