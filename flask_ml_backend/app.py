@@ -12,13 +12,13 @@ CORS(app)
 print("Loading ML models...")
 BASE_DIR = os.getcwd()
 
-with open(os.path.join(BASE_DIR, 'flask_ml_backend', 'models', 'patent_lifetime_predictor.pkl'), 'rb') as f:
+with open(os.path.join(BASE_DIR, 'models', 'patent_lifetime_predictor.pkl'), 'rb') as f:
     prediction_model = pickle.load(f)
-with open(os.path.join(BASE_DIR, 'flask_ml_backend', 'models', 'prediction_features.json'), 'r') as f:
+with open(os.path.join(BASE_DIR, 'models', 'prediction_features.json'), 'r') as f:
     feature_columns = json.load(f)
-with open(os.path.join(BASE_DIR, 'flask_ml_backend', 'data', 'eda_statistics.json'), 'r') as f:
+with open(os.path.join(BASE_DIR, 'data', 'eda_statistics.json'), 'r') as f:
     eda_stats = json.load(f)
-with open(os.path.join(BASE_DIR, 'flask_ml_backend', 'models', 'patent_classifier_gradient_boosting.pkl'), 'rb') as f:
+with open(os.path.join(BASE_DIR, 'models', 'patent_classifier_gradient_boosting.pkl'), 'rb') as f:
     binary_classifier = pickle.load(f)
 
 print("All models loaded!")
