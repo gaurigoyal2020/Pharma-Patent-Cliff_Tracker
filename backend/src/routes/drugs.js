@@ -4,6 +4,8 @@ import {
   getAllDrugs,
   getDrugByAppNo,
   searchDrugs,
+  searchDrugsForFrontend,
+  getDrugAlternativesForFrontend,
   getDrugsByDisease,
   getExpiringPatents,
   getPatentStatus,
@@ -23,15 +25,33 @@ router.get('/', (req, res) => {
 });
 
 // GET /api/drugs/search?q=rivaroxaban
-// Search by brand name or generic name
+// Search by brand name or generic name.
+// Returns results shaped to match the frontend card format:
+//   { id, name, generic_name, dosage_form, strength, patent_expired, patent_expiry? }
+// Pass ?raw=true to get the raw DB shape instead.
 router.get('/search', (req, res) => {
-  const { q } = req.query;
+  const { q, raw } = req.query;
   if (!q || q.trim().length < 2) {
     return res.status(400).json({ success: false, error: 'Query must be at least 2 characters' });
   }
   try {
-    const results = searchDrugs(q.trim());
+    const results = raw === 'true'
+      ? searchDrugs(q.trim())
+      : searchDrugsForFrontend(q.trim());
     res.json({ success: true, count: results.length, data: results });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/drugs/alternatives/:app_no
+// Returns alternative drugs (same generic name) in frontend card format:
+//   { active_ingredient, alternatives: [...cards] }
+router.get('/alternatives/:app_no', (req, res) => {
+  try {
+    const result = getDrugAlternativesForFrontend(req.params.app_no);
+    if (!result) return res.status(404).json({ success: false, error: 'Drug not found' });
+    res.json({ success: true, data: result });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }

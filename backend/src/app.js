@@ -2,7 +2,8 @@
 import express from 'express';
 import cors from 'cors';
 import drugRoutes from './routes/drugs.js';
-import authRoutes from './routes/auth.js';   // ← NEW
+import authRoutes from './routes/auth.js';
+import diseaseRoutes from './routes/diseases.js';
 
 const app = express();
 
@@ -10,7 +11,8 @@ app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:5173' }));
 app.use(express.json());
 
 app.use('/api/drugs', drugRoutes);
-app.use('/api/auth', authRoutes);             // ← NEW
+app.use('/api/auth', authRoutes);
+app.use('/api/diseases', diseaseRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

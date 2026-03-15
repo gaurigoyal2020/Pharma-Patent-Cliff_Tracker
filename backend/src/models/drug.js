@@ -40,6 +40,96 @@ export function searchDrugs(query) {
   `).all(q, q);
 }
 
+/**
+ * Search drugs and return results shaped to match the frontend's expected format.
+ * Returns: { id, name, generic_name, dosage_form, strength, patent_expired, patent_expiry? }
+ */
+export function searchDrugsForFrontend(query) {
+  const q = `%${query.toUpperCase()}%`;
+
+  const rows = db.prepare(`
+    SELECT
+      d.id,
+      d.app_no,
+      d.brand_name,
+      d.generic_name,
+      p.route        AS dosage_form,
+      p.strength,
+      MIN(pt.patent_expiry_date) AS earliest_expiry,
+      MIN(pt.days_until_expiry)  AS min_days_until_expiry
+    FROM drugs d
+    LEFT JOIN products p  ON p.app_no = d.app_no
+    LEFT JOIN patents  pt ON pt.app_no = d.app_no
+    WHERE UPPER(d.brand_name) LIKE ? OR UPPER(d.generic_name) LIKE ?
+    GROUP BY d.id
+    ORDER BY d.brand_name
+  `).all(q, q);
+
+  return rows.map(r => ({
+    id:             r.id,
+    app_no:         r.app_no,
+    name:           r.brand_name,
+    generic_name:   r.generic_name,
+    dosage_form:    r.dosage_form  || 'Oral',
+    strength:       r.strength     || 'N/A',
+    patent_expired: r.min_days_until_expiry === null || r.min_days_until_expiry < 0,
+    ...(r.min_days_until_expiry !== null && r.min_days_until_expiry >= 0
+      ? { patent_expiry: r.earliest_expiry }
+      : {}),
+  }));
+}
+
+/**
+ * Given an app_no, find other drugs sharing the same generic name (alternatives).
+ * Returns the selected drug + its alternatives in frontend shape.
+ */
+export function getDrugAlternativesForFrontend(app_no) {
+  const drug = db.prepare(`SELECT * FROM drugs WHERE app_no = ?`).get(app_no);
+  if (!drug) return null;
+
+  const q = `%${drug.generic_name.toUpperCase()}%`;
+
+  const rows = db.prepare(`
+    SELECT
+      d.id,
+      d.app_no,
+      d.brand_name,
+      d.generic_name,
+      p.route        AS dosage_form,
+      p.strength,
+      MIN(pt.patent_expiry_date) AS earliest_expiry,
+      MIN(pt.days_until_expiry)  AS min_days_until_expiry
+    FROM drugs d
+    LEFT JOIN products p  ON p.app_no = d.app_no
+    LEFT JOIN patents  pt ON pt.app_no = d.app_no
+    WHERE UPPER(d.generic_name) LIKE ?
+    GROUP BY d.id
+    ORDER BY d.brand_name
+  `).all(q);
+
+  const toCard = (r) => ({
+    id:             r.id,
+    app_no:         r.app_no,
+    name:           r.brand_name,
+    generic_name:   r.generic_name,
+    dosage_form:    r.dosage_form  || 'Oral',
+    strength:       r.strength     || 'N/A',
+    patent_expired: r.min_days_until_expiry === null || r.min_days_until_expiry < 0,
+    ...(r.min_days_until_expiry !== null && r.min_days_until_expiry >= 0
+      ? { patent_expiry: r.earliest_expiry }
+      : {}),
+  });
+
+  const alternatives = rows
+    .filter(r => r.app_no !== app_no)
+    .map(toCard);
+
+  return {
+    active_ingredient: drug.generic_name,
+    alternatives,
+  };
+}
+
 const DISEASE_MAP = {
   'Diabetes':        ['JARDIANCE', 'OZEMPIC', 'VICTOZA', 'JANUVIA'],
   'Heart Disease':   ['XARELTO', 'BRILINTA', 'ELIQUIS SPRINKLE', 'ENTRESTO SPRINKLE'],
