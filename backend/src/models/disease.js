@@ -1,15 +1,5 @@
-// src/models/disease.js
-//
-// Disease → generic ingredient keyword mappings.
-// Each disease maps to a list of UPPER-CASE substrings that are matched against
-// the generic_name column in the drugs table.  This is intentionally broad so
-// that combination products (e.g. "METFORMIN HYDROCHLORIDE; SITAGLIPTIN") are
-// captured by either keyword.
-//
-// Only diseases whose drugs actually exist in the patent_tracker.db dataset are
-// listed here.  The list was derived from master_dataset.csv.
-
 import db from '../config/database.js';
+import { toCard } from './drug.js';
 
 const DISEASE_INGREDIENT_MAP = {
   'Diabetes': [
@@ -70,60 +60,34 @@ const DISEASE_INGREDIENT_MAP = {
   ],
 };
 
-/**
- * Returns a sorted array of disease names whose drugs exist in the DB.
- */
 export function getAllDiseases() {
   return Object.keys(DISEASE_INGREDIENT_MAP).sort();
 }
 
-/**
- * Returns drugs for a given disease in frontend card format:
- *   { id, app_no, name, generic_name, dosage_form, strength,
- *     patent_expired, patent_expiry? }
- *
- * Multiple keyword hits for the same drug are deduplicated (by app_no).
- */
-export function getDrugsByDiseaseForFrontend(disease) {
+export async function getDrugsByDiseaseForFrontend(disease) {
   const keywords = DISEASE_INGREDIENT_MAP[disease];
-  if (!keywords) return null;          // unknown disease → 404
+  if (!keywords) return null;
 
-  // Build one big UNION-less query with OR conditions so we get one row per
-  // drug even when multiple keywords match.
-  const conditions = keywords
-    .map(() => `UPPER(d.generic_name) LIKE ?`)
-    .join(' OR ');
+  const rows = await db('drugs as d')
+    .leftJoin('products as p', 'p.app_no', 'd.app_no')
+    .leftJoin('patents as pt', 'pt.app_no', 'd.app_no')
+    .select(
+      'd.id',
+      'd.app_no',
+      'd.brand_name',
+      'd.generic_name',
+      'p.route as dosage_form',
+      'p.strength',
+      db.raw('MIN(pt.patent_expiry_date) as earliest_expiry')
+    )
+    .where(function () {
+      keywords.forEach((keyword, i) => {
+        const method = i === 0 ? 'whereRaw' : 'orWhereRaw';
+        this[method]('UPPER(d.generic_name) LIKE ?', [`%${keyword}%`]);
+      });
+    })
+    .groupBy('d.id', 'd.app_no', 'd.brand_name', 'd.generic_name', 'p.route', 'p.strength')
+    .orderBy('d.brand_name');
 
-  const params = keywords.map(k => `%${k}%`);
-
-  const rows = db.prepare(`
-    SELECT
-      d.id,
-      d.app_no,
-      d.brand_name,
-      d.generic_name,
-      p.route        AS dosage_form,
-      p.strength,
-      MIN(pt.patent_expiry_date) AS earliest_expiry,
-      MIN(pt.days_until_expiry)  AS min_days_until_expiry
-    FROM drugs d
-    LEFT JOIN products p  ON p.app_no = d.app_no
-    LEFT JOIN patents  pt ON pt.app_no = d.app_no
-    WHERE ${conditions}
-    GROUP BY d.id
-    ORDER BY d.brand_name
-  `).all(...params);
-
-  return rows.map(r => ({
-    id:             r.id,
-    app_no:         r.app_no,
-    name:           r.brand_name,
-    generic_name:   r.generic_name,
-    dosage_form:    r.dosage_form  || 'Oral',
-    strength:       r.strength     || 'N/A',
-    patent_expired: r.min_days_until_expiry === null || r.min_days_until_expiry < 0,
-    ...(r.min_days_until_expiry !== null && r.min_days_until_expiry >= 0
-      ? { patent_expiry: r.earliest_expiry }
-      : {}),
-  }));
+  return rows.map(toCard);
 }

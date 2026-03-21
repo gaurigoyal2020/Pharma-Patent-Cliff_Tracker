@@ -1,13 +1,9 @@
-// src/routes/diseases.js
-
 import { Router } from 'express';
 import { getAllDiseases, getDrugsByDiseaseForFrontend } from '../models/disease.js';
 
 const router = Router();
 
 // GET /api/diseases
-// Returns the list of supported disease names.
-// Response: { success: true, data: ["Diabetes", "Heart Disease", ...] }
 router.get('/', (req, res) => {
   try {
     const diseases = getAllDiseases();
@@ -18,13 +14,10 @@ router.get('/', (req, res) => {
 });
 
 // GET /api/diseases/:disease/drugs
-// Returns drugs for a given disease in frontend card format.
-// Response: { success, count, data: [{id, app_no, name, generic_name,
-//              dosage_form, strength, patent_expired, patent_expiry?}, ...] }
-router.get('/:disease/drugs', (req, res) => {
+router.get('/:disease/drugs', async (req, res) => {
   try {
     const disease = decodeURIComponent(req.params.disease);
-    const drugs = getDrugsByDiseaseForFrontend(disease);
+    const drugs = await getDrugsByDiseaseForFrontend(disease);
 
     if (drugs === null) {
       return res.status(404).json({

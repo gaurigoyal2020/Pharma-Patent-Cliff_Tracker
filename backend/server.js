@@ -1,8 +1,11 @@
 import 'dotenv/config';
-import './src/config/database.js';
 import app from './src/app.js';
+import { createUsersTable } from './src/models/user.js';
 
 const PORT = process.env.PORT || 5000;
+
+// Create tables if they don't exist, then start server
+await createUsersTable();
 
 app.listen(PORT, () => {
   console.log(`\n🚀 Patent Cliff API running on http://localhost:${PORT}`);

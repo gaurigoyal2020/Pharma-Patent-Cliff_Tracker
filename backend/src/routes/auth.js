@@ -1,4 +1,3 @@
-// src/routes/auth.js
 import { Router } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
@@ -15,7 +14,6 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 const SALT_ROUNDS = 12;
 
-/** Helper: sign a JWT for a user */
 function signToken(user) {
   return jwt.sign(
     { id: user.id, email: user.email, role: user.role },
@@ -25,13 +23,12 @@ function signToken(user) {
 }
 
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10,                   // 10 attempts
+  windowMs: 15 * 60 * 1000,
+  max: 10,
   message: { success: false, error: 'Too many attempts, try again later' }
 });
 
-// ── POST /api/auth/register ───────────────────────────────────────────────────
-// Body: { name, email, password }
+// POST /api/auth/register
 router.post('/register', authLimiter, async (req, res) => {
   const { name, email, password } = req.body;
 
@@ -44,11 +41,11 @@ router.post('/register', authLimiter, async (req, res) => {
   }
 
   const passwordRules = {
-    minLength: password.length >= 8,
-    hasUpperCase: /[A-Z]/.test(password),
-    hasLowerCase: /[a-z]/.test(password),
-    hasNumber: /[0-9]/.test(password),
-    hasSpecialChar: /[!@#$%^&*(),.?":{}|<>]/.test(password),
+    minLength:       password.length >= 8,
+    hasUpperCase:    /[A-Z]/.test(password),
+    hasLowerCase:    /[a-z]/.test(password),
+    hasNumber:       /[0-9]/.test(password),
+    hasSpecialChar:  /[!@#$%^&*(),.?":{}|<>]/.test(password),
   };
 
   const failedRules = Object.entries(passwordRules)
@@ -65,13 +62,13 @@ router.post('/register', authLimiter, async (req, res) => {
   }
 
   try {
-    const existing = findUserByEmail(email.toLowerCase());
+    const existing = await findUserByEmail(email.toLowerCase());
     if (existing) {
       return res.status(409).json({ success: false, error: 'Email already registered' });
     }
 
     const hashed = await bcrypt.hash(password, SALT_ROUNDS);
-    const user = createUser({ name, email: email.toLowerCase(), password: hashed });
+    const user = await createUser({ name, email: email.toLowerCase(), password: hashed });
     const token = signToken(user);
 
     res.status(201).json({
@@ -86,8 +83,7 @@ router.post('/register', authLimiter, async (req, res) => {
   }
 });
 
-// ── POST /api/auth/login ──────────────────────────────────────────────────────
-// Body: { email, password }
+// POST /api/auth/login
 router.post('/login', authLimiter, async (req, res) => {
   const { email, password } = req.body;
 
@@ -96,9 +92,8 @@ router.post('/login', authLimiter, async (req, res) => {
   }
 
   try {
-    const user = findUserByEmail(email.toLowerCase());
+    const user = await findUserByEmail(email.toLowerCase());
     if (!user) {
-      // Generic message to prevent user enumeration
       return res.status(401).json({ success: false, error: 'Invalid email or password' });
     }
 
@@ -121,11 +116,10 @@ router.post('/login', authLimiter, async (req, res) => {
   }
 });
 
-// ── GET /api/auth/me ──────────────────────────────────────────────────────────
-// Protected: returns current user profile from token
-router.get('/me', authenticate, (req, res) => {
+// GET /api/auth/me
+router.get('/me', authenticate, async (req, res) => {
   try {
-    const user = findUserById(req.user.id);
+    const user = await findUserById(req.user.id);
     if (!user) {
       return res.status(404).json({ success: false, error: 'User not found' });
     }
@@ -136,11 +130,10 @@ router.get('/me', authenticate, (req, res) => {
   }
 });
 
-// ── GET /api/auth/users ───────────────────────────────────────────────────────
-// Protected + Admin only: list all users
-router.get('/users', authenticate, requireAdmin, (req, res) => {
+// GET /api/auth/users — admin only
+router.get('/users', authenticate, requireAdmin, async (req, res) => {
   try {
-    const users = getAllUsers();
+    const users = await getAllUsers();
     res.json({ success: true, count: users.length, data: users });
   } catch (err) {
     console.error('[Auth] Users list error:', err.message);

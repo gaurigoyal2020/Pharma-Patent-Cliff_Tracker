@@ -1,16 +1,17 @@
-import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import knex from "knex";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const DB_PATH = process.env.DB_PATH || join(__dirname, '../../data/patent_tracker.db');
+const db = knex({
+    client: 'pg',
+    connection: {
+        connectionString: process.env.DATABASE_URL,
+        ssl: {rejectUnauthorized: false}
+    },
+    pool : {
+        min: 2,
+        max: 10
+    }
+});
 
-mkdirSync(dirname(DB_PATH), { recursive: true });
-
-const db = new DatabaseSync(DB_PATH);
-db.exec('PRAGMA foreign_keys = ON');
-
-console.log(`[DB] SQLite at: ${DB_PATH}`);
+console.log("[DB] PostgreSQL via Superbase connected");
 
 export default db;

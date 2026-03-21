@@ -28,7 +28,7 @@ export function authenticate(req, res, next) {
 
 /**
  * Restricts access to admin-role users only.
- * Must be used AFTER authenticate middleware.
+ * Used AFTER authenticate middleware.
  */
 export function requireAdmin(req, res, next) {
   if (req.user?.role !== 'admin') {

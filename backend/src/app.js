@@ -1,16 +1,16 @@
-// src/app.js  (updated — add the two new import lines and the auth route)
+// src/app.js 
 import express from 'express';
 import cors from 'cors';
 import drugRoutes from './routes/drugs.js';
 import authRoutes from './routes/auth.js';
 import diseaseRoutes from './routes/diseases.js';
 
-const app = express();
+const app = express(); //express() creates an Express application, which is an object that has methods for routing HTTP requests, configuring middleware, and more.
 
 app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:5173' }));
-app.use(express.json());
+app.use(express.json()); //parses incoming JSON requests and puts the parsed data in req.body
 
-app.use('/api/drugs', drugRoutes);
+app.use('/api/drugs', drugRoutes); //Mounts the drugRoutes router on the /api/drugs path. This means that any requests to /api/drugs will be handled by the drugRoutes router.
 app.use('/api/auth', authRoutes);
 app.use('/api/diseases', diseaseRoutes);
 

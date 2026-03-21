@@ -1,185 +1,145 @@
 import db from '../config/database.js';
 
-export function getAllDrugs() {
-  return db.prepare(`
-    SELECT
-      d.id, d.app_no, d.brand_name, d.generic_name, d.app_type,
-      COUNT(DISTINCT p.product_no)    AS product_count,
-      COUNT(DISTINCT pt.patent_number) AS patent_count,
-      MIN(pt.patent_expiry_date)      AS earliest_expiry,
-      MAX(pt.patent_expiry_date)      AS latest_expiry,
-      MIN(pt.days_until_expiry)       AS min_days_until_expiry
-    FROM drugs d
-    LEFT JOIN products p  ON p.app_no = d.app_no
-    LEFT JOIN patents  pt ON pt.app_no = d.app_no
-    GROUP BY d.id
-    ORDER BY d.brand_name
-  `).all();
+// ─── Shared helper ────────────────────────────────────────────────────────────
+// Single source of truth for shaping a raw DB row into a frontend card.
+// Used by search, alternatives, and disease queries.
+export function toCard(r) {
+  const daysUntilExpiry = r.earliest_expiry
+    ? Math.floor((new Date(r.earliest_expiry) - new Date()) / (1000 * 60 * 60 * 24))
+    : null;
+
+  return {
+    id:            r.id,
+    app_no:        r.app_no,
+    name:          r.brand_name,
+    generic_name:  r.generic_name,
+    dosage_form:   r.dosage_form || 'Oral',
+    strength:      r.strength    || 'N/A',
+    patent_expired: daysUntilExpiry === null || daysUntilExpiry < 0,
+    ...(daysUntilExpiry !== null && daysUntilExpiry >= 0
+      ? { patent_expiry: r.earliest_expiry }
+      : {}),
+  };
 }
 
-export function getDrugByAppNo(app_no) {
-  const drug = db.prepare(`SELECT * FROM drugs WHERE app_no = ?`).get(app_no);
+// ─── Base query fragment ──────────────────────────────────────────────────────
+// Every search/list function needs the same JOIN + GROUP BY structure.
+// We define it once here so it's never copy-pasted.
+function baseDrugQuery() {
+  return db('drugs as d')
+    .leftJoin('products as p', 'p.app_no', 'd.app_no')
+    .leftJoin('patents as pt', 'pt.app_no', 'd.app_no')
+    .select(
+      'd.id',
+      'd.app_no',
+      'd.brand_name',
+      'd.generic_name',
+      'p.route as dosage_form',
+      'p.strength',
+      db.raw('MIN(pt.patent_expiry_date) as earliest_expiry')
+    )
+    .groupBy('d.id', 'd.app_no', 'd.brand_name', 'd.generic_name', 'p.route', 'p.strength')
+    .orderBy('d.brand_name');
+}
+
+// ─── Functions ────────────────────────────────────────────────────────────────
+
+export async function getAllDrugs() {
+  return db('drugs as d')
+    .leftJoin('products as p', 'p.app_no', 'd.app_no')
+    .leftJoin('patents as pt', 'pt.app_no', 'd.app_no')
+    .select(
+      'd.id', 'd.app_no', 'd.brand_name', 'd.generic_name', 'd.app_type',
+      db.raw('COUNT(DISTINCT p.product_no) as product_count'),
+      db.raw('COUNT(DISTINCT pt.patent_number) as patent_count'),
+      db.raw('MIN(pt.patent_expiry_date) as earliest_expiry'),
+      db.raw('MAX(pt.patent_expiry_date) as latest_expiry')
+    )
+    .groupBy('d.id', 'd.app_no', 'd.brand_name', 'd.generic_name', 'd.app_type')
+    .orderBy('d.brand_name');
+}
+
+export async function getDrugByAppNo(app_no) {
+  const drug = await db('drugs').where({ app_no }).first();
   if (!drug) return null;
-  drug.products = db.prepare(`SELECT * FROM products WHERE app_no = ? ORDER BY product_no`).all(app_no);
-  drug.patents  = db.prepare(`SELECT * FROM patents  WHERE app_no = ? ORDER BY patent_expiry_date`).all(app_no);
+
+  drug.products = await db('products')
+    .where({ app_no })
+    .orderBy('product_no');
+
+  drug.patents = await db('patents')
+    .where({ app_no })
+    .orderBy('patent_expiry_date');
+
   return drug;
 }
 
-export function searchDrugs(query) {
-  const q = `%${query.toUpperCase()}%`;
-  return db.prepare(`
-    SELECT
-      d.id, d.app_no, d.brand_name, d.generic_name,
-      MIN(pt.patent_expiry_date) AS earliest_expiry,
-      MAX(pt.days_until_expiry)  AS max_days_until_expiry
-    FROM drugs d
-    LEFT JOIN patents pt ON pt.app_no = d.app_no
-    WHERE UPPER(d.brand_name) LIKE ? OR UPPER(d.generic_name) LIKE ?
-    GROUP BY d.id
-    ORDER BY d.brand_name
-  `).all(q, q);
-}
-
-/**
- * Search drugs and return results shaped to match the frontend's expected format.
- * Returns: { id, name, generic_name, dosage_form, strength, patent_expired, patent_expiry? }
- */
-export function searchDrugsForFrontend(query) {
+export async function searchDrugsForFrontend(query) {
   const q = `%${query.toUpperCase()}%`;
 
-  const rows = db.prepare(`
-    SELECT
-      d.id,
-      d.app_no,
-      d.brand_name,
-      d.generic_name,
-      p.route        AS dosage_form,
-      p.strength,
-      MIN(pt.patent_expiry_date) AS earliest_expiry,
-      MIN(pt.days_until_expiry)  AS min_days_until_expiry
-    FROM drugs d
-    LEFT JOIN products p  ON p.app_no = d.app_no
-    LEFT JOIN patents  pt ON pt.app_no = d.app_no
-    WHERE UPPER(d.brand_name) LIKE ? OR UPPER(d.generic_name) LIKE ?
-    GROUP BY d.id
-    ORDER BY d.brand_name
-  `).all(q, q);
+  const rows = await baseDrugQuery()
+    .whereRaw('UPPER(d.brand_name) LIKE ?', [q])
+    .orWhereRaw('UPPER(d.generic_name) LIKE ?', [q]);
 
-  return rows.map(r => ({
-    id:             r.id,
-    app_no:         r.app_no,
-    name:           r.brand_name,
-    generic_name:   r.generic_name,
-    dosage_form:    r.dosage_form  || 'Oral',
-    strength:       r.strength     || 'N/A',
-    patent_expired: r.min_days_until_expiry === null || r.min_days_until_expiry < 0,
-    ...(r.min_days_until_expiry !== null && r.min_days_until_expiry >= 0
-      ? { patent_expiry: r.earliest_expiry }
-      : {}),
-  }));
+  return rows.map(toCard);
 }
 
-/**
- * Given an app_no, find other drugs sharing the same generic name (alternatives).
- * Returns the selected drug + its alternatives in frontend shape.
- */
-export function getDrugAlternativesForFrontend(app_no) {
-  const drug = db.prepare(`SELECT * FROM drugs WHERE app_no = ?`).get(app_no);
+export async function getDrugAlternativesForFrontend(app_no) {
+  const drug = await db('drugs').where({ app_no }).first();
   if (!drug) return null;
 
   const q = `%${drug.generic_name.toUpperCase()}%`;
 
-  const rows = db.prepare(`
-    SELECT
-      d.id,
-      d.app_no,
-      d.brand_name,
-      d.generic_name,
-      p.route        AS dosage_form,
-      p.strength,
-      MIN(pt.patent_expiry_date) AS earliest_expiry,
-      MIN(pt.days_until_expiry)  AS min_days_until_expiry
-    FROM drugs d
-    LEFT JOIN products p  ON p.app_no = d.app_no
-    LEFT JOIN patents  pt ON pt.app_no = d.app_no
-    WHERE UPPER(d.generic_name) LIKE ?
-    GROUP BY d.id
-    ORDER BY d.brand_name
-  `).all(q);
-
-  const toCard = (r) => ({
-    id:             r.id,
-    app_no:         r.app_no,
-    name:           r.brand_name,
-    generic_name:   r.generic_name,
-    dosage_form:    r.dosage_form  || 'Oral',
-    strength:       r.strength     || 'N/A',
-    patent_expired: r.min_days_until_expiry === null || r.min_days_until_expiry < 0,
-    ...(r.min_days_until_expiry !== null && r.min_days_until_expiry >= 0
-      ? { patent_expiry: r.earliest_expiry }
-      : {}),
-  });
-
-  const alternatives = rows
-    .filter(r => r.app_no !== app_no)
-    .map(toCard);
+  const rows = await baseDrugQuery()
+    .whereRaw('UPPER(d.generic_name) LIKE ?', [q]);
 
   return {
     active_ingredient: drug.generic_name,
-    alternatives,
+    alternatives: rows
+      .filter(r => r.app_no !== app_no)
+      .map(toCard),
   };
 }
 
-const DISEASE_MAP = {
-  'Diabetes':        ['JARDIANCE', 'OZEMPIC', 'VICTOZA', 'JANUVIA'],
-  'Heart Disease':   ['XARELTO', 'BRILINTA', 'ELIQUIS SPRINKLE', 'ENTRESTO SPRINKLE'],
-  'Hypertension':    ['ENTRESTO SPRINKLE'],
-  'Anticoagulation': ['XARELTO', 'BRILINTA', 'ELIQUIS SPRINKLE'],
-};
+export async function getExpiringPatents(withinDays = 365) {
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() + withinDays);
 
-export function getDrugsByDisease(disease) {
-  const brands = DISEASE_MAP[disease];
-  if (!brands) return [];
-  const placeholders = brands.map(() => '?').join(',');
-  return db.prepare(`
-    SELECT
-      d.id, d.app_no, d.brand_name, d.generic_name,
-      MIN(pt.patent_expiry_date) AS earliest_expiry,
-      MAX(pt.patent_expiry_date) AS latest_expiry,
-      MIN(pt.days_until_expiry)  AS days_until_expiry
-    FROM drugs d
-    LEFT JOIN patents pt ON pt.app_no = d.app_no
-    WHERE d.brand_name IN (${placeholders})
-    GROUP BY d.id
-    ORDER BY d.brand_name
-  `).all(...brands);
+  return db('patents as pt')
+    .join('drugs as d', 'd.app_no', 'pt.app_no')
+    .select(
+      'pt.patent_number',
+      'pt.patent_expiry_date',
+      'd.brand_name',
+      'd.generic_name',
+      'd.app_no'
+    )
+    .where('pt.patent_expiry_date', '>=', new Date().toISOString().split('T')[0])
+    .where('pt.patent_expiry_date', '<=', cutoffDate.toISOString().split('T')[0])
+    .groupBy('pt.patent_number', 'pt.patent_expiry_date', 'd.app_no', 'd.brand_name', 'd.generic_name')
+    .orderBy('pt.patent_expiry_date', 'asc');
 }
 
-export function getExpiringPatents(withinDays = 365) {
-  return db.prepare(`
-    SELECT
-      pt.patent_number, pt.patent_expiry_date, pt.days_until_expiry,
-      d.brand_name, d.generic_name, d.app_no
-    FROM patents pt
-    JOIN drugs d ON d.app_no = pt.app_no
-    WHERE pt.days_until_expiry BETWEEN 0 AND ?
-    GROUP BY pt.patent_number, d.app_no
-    ORDER BY pt.days_until_expiry ASC
-  `).all(withinDays);
-}
+export async function getPatentStatus(app_no) {
+  const patents = await db('patents')
+    .where({ app_no })
+    .orderBy('patent_expiry_date');
 
-export function getPatentStatus(app_no) {
-  const patents = db.prepare(`
-    SELECT * FROM patents WHERE app_no = ? ORDER BY patent_expiry_date
-  `).all(app_no);
+  return patents.map(p => {
+    const daysUntilExpiry = p.patent_expiry_date
+      ? Math.floor((new Date(p.patent_expiry_date) - new Date()) / (1000 * 60 * 60 * 24))
+      : null;
 
-  return patents.map(p => ({
-    ...p,
-    is_expired: p.days_until_expiry !== null && p.days_until_expiry < 0,
-    expiry_label: p.days_until_expiry < 0
-      ? 'Expired — Generic Available'
-      : p.days_until_expiry === 0
-        ? 'Expiring Today'
-        : `Expires in ${p.days_until_expiry} days`,
-  }));
+    return {
+      ...p,
+      is_expired: daysUntilExpiry !== null && daysUntilExpiry < 0,
+      expiry_label: daysUntilExpiry === null
+        ? 'No expiry data'
+        : daysUntilExpiry < 0
+          ? 'Expired — Generic Available'
+          : daysUntilExpiry === 0
+            ? 'Expiring Today'
+            : `Expires in ${daysUntilExpiry} days`,
+    };
+  });
 }
