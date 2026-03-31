@@ -21,6 +21,11 @@ with open(os.path.join(BASE_DIR, 'data', 'eda_statistics.json'), 'r') as f:
 with open(os.path.join(BASE_DIR, 'models', 'patent_classifier_gradient_boosting.pkl'), 'rb') as f:
     binary_classifier = pickle.load(f)
 
+
+# Load price dataset
+PRICES_PATH = os.path.join(BASE_DIR, 'data', 'drug_summary_with_prices.csv')
+drugs_prices_df = pd.read_csv(PRICES_PATH)
+print("Price dataset loaded!")
 print("All models loaded!")
 
 @app.route('/health', methods=['GET'])
@@ -82,6 +87,112 @@ def classify_status():
 @app.route('/api/insights', methods=['GET'])
 def get_insights():
     return jsonify({'success': True, 'data': eda_stats}), 200
+
+
+
+# Load savings data at startup
+import pandas as pd
+SAVINGS_PATH = os.path.join(BASE_DIR, 'data', 'drug_summary_with_prices.csv')
+TOP10_PATH = os.path.join(BASE_DIR, 'data', 'top10_savings.csv')
+CATEGORY_PATH = os.path.join(BASE_DIR, 'data', 'category_savings_analysis.csv')
+
+savings_df = pd.read_csv(SAVINGS_PATH)
+top10_df = pd.read_csv(TOP10_PATH)
+category_df = pd.read_csv(CATEGORY_PATH)
+print("Savings data loaded!")
+
+@app.route('/api/savings/<brand_name>', methods=['GET'])
+def get_savings(brand_name):
+    try:
+        drug = savings_df[
+            savings_df['brand_name'].str.upper() == brand_name.upper()
+        ]
+        if drug.empty:
+            drug = savings_df[
+                savings_df['brand_name'].str.upper().str.contains(brand_name.upper())
+            ]
+        if drug.empty:
+            return jsonify({'success': False, 'error': 'Drug not found'}), 404
+
+        drug = drug.iloc[0]
+
+        if drug['status'] == 'Active':
+            return jsonify({
+                'success': True,
+                'brand_name': drug['brand_name'],
+                'generic_name': drug['generic_name'],
+                'status': 'Active',
+                'generic_available': 'No',
+                'brand_price_monthly': round(float(drug['brand_price_monthly']), 2),
+                'brand_price_annual': round(float(drug['brand_price_annual']), 2),
+                'earliest_expiry': str(drug['earliest_expiry']),
+                'days_until': int(drug['days_until']) if pd.notna(drug['days_until']) else None,
+                'message': 'Generic not available yet - patent still active'
+            })
+
+        return jsonify({
+            'success': True,
+            'brand_name': drug['brand_name'],
+            'generic_name': drug['generic_name'],
+            'category': drug['category'],
+            'status': 'Expired',
+            'generic_available': 'Yes',
+            'brand_price_monthly': round(float(drug['brand_price_monthly']), 2),
+            'brand_price_annual': round(float(drug['brand_price_annual']), 2),
+            'generic_price_monthly': round(float(drug['generic_price_monthly']), 2),
+            'generic_price_annual': round(float(drug['generic_price_annual']), 2),
+            'monthly_savings': round(float(drug['monthly_savings']), 2),
+            'annual_savings': round(float(drug['annual_savings']), 2),
+            'savings_percent': round(float(drug['savings_percent']), 1),
+            'savings_5_years': round(float(drug['annual_savings']) * 5, 2),
+            'savings_10_years': round(float(drug['annual_savings']) * 10, 2)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/savings/top10', methods=['GET'])
+def get_top10():
+    try:
+        result = top10_df[[
+            'brand_name', 'generic_name', 'category',
+            'brand_price_monthly', 'generic_price_monthly',
+            'monthly_savings', 'annual_savings', 'savings_percent'
+        ]].round(2).to_dict('records')
+        return jsonify({'success': True, 'top10': result})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/savings/by-category', methods=['GET'])
+def get_savings_by_category():
+    try:
+        result = category_df.reset_index().round(2).to_dict('records')
+        return jsonify({'success': True, 'categories': result})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/savings/stats', methods=['GET'])
+def get_savings_stats():
+    try:
+        expired = savings_df[savings_df['status'] == 'Expired']
+        return jsonify({
+            'success': True,
+            'stats': {
+                'total_drugs': int(len(savings_df)),
+                'expired_drugs': int(len(expired)),
+                'active_drugs': int(len(savings_df) - len(expired)),
+                'avg_brand_price_monthly': round(float(savings_df['brand_price_monthly'].mean()), 2),
+                'avg_generic_price_monthly': round(float(expired['generic_price_monthly'].mean()), 2),
+                'avg_monthly_savings': round(float(expired['monthly_savings'].mean()), 2),
+                'avg_annual_savings': round(float(expired['annual_savings'].mean()), 2),
+                'avg_savings_percent': round(float(expired['savings_percent'].mean()), 1),
+                'total_annual_savings_pool': round(float(expired['annual_savings'].sum()), 2)
+            }
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 if __name__ == '__main__':
     print("FLASK ML BACKEND STARTING on port 5000")
