@@ -4,7 +4,8 @@ import cors    from 'cors';
 import drugRoutes    from './routes/drugs.js';
 import authRoutes    from './routes/auth.js';
 import diseaseRoutes from './routes/diseases.js';
-import userRoutes    from './routes/users.js';          // ← NEW
+import userRoutes    from './routes/users.js';
+import ocrRoutes     from './routes/ocr.js';
 
 const app = express();
 
@@ -14,7 +15,8 @@ app.use(express.json());
 app.use('/api/drugs',    drugRoutes);
 app.use('/api/auth',     authRoutes);
 app.use('/api/diseases', diseaseRoutes);
-app.use('/api/users',    userRoutes);                  // ← NEW
+app.use('/api/users',    userRoutes);
+app.use('/api/ocr',      ocrRoutes);
 
 app.get('/api/health', (_req, res) =>
   res.json({ status: 'ok', timestamp: new Date().toISOString() })

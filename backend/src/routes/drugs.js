@@ -6,6 +6,7 @@ import {
   getDrugAlternativesForFrontend,
   getExpiringPatents,
   getPatentStatus,
+  matchDrugFromOCRText,
 } from '../models/drug.js';
 
 const router = Router();
@@ -51,6 +52,26 @@ router.get('/expiring', async (req, res) => {
   try {
     const patents = await getExpiringPatents(days);
     res.json({ success: true, count: patents.length, data: patents });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// POST /api/drugs/match
+// Body: { text: "<raw OCR text>" }
+// Returns the first drug name found in the text, matched against the DB.
+// Used by the frontend after OCR to replace the hardcoded knownDrugs list.
+router.post('/match', async (req, res) => {
+  const { text } = req.body;
+  if (!text || typeof text !== 'string' || !text.trim()) {
+    return res.status(400).json({ success: false, error: 'Request body must include a non-empty "text" field' });
+  }
+  try {
+    const matchedName = await matchDrugFromOCRText(text);
+    if (!matchedName) {
+      return res.status(404).json({ success: false, error: 'No drug name found in the provided text' });
+    }
+    res.json({ success: true, drugName: matchedName });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
