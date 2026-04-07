@@ -10,7 +10,7 @@ app = Flask(__name__)
 CORS(app)
 
 print("Loading ML models...")
-BASE_DIR = os.getcwd()
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 with open(os.path.join(BASE_DIR, 'models', 'patent_lifetime_predictor.pkl'), 'rb') as f:
     prediction_model = pickle.load(f)
