@@ -7,7 +7,11 @@ from datetime import datetime, timedelta
 import os
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=[
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'https://pharma-patent-cliff-tr-git-760465-drishti-gauri-dishita-project.vercel.app'
+])
 
 print("Loading ML models...")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
