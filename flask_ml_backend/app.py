@@ -9,7 +9,7 @@ import os
 app = Flask(__name__)
 CORS(app, origins=[
     'http://localhost:5173',
-    'http://localhost:3000',
+    'http://localhost:5001',
     'https://pharma-patent-cliff-tr-git-760465-drishti-gauri-dishita-project.vercel.app'
 ])
 
