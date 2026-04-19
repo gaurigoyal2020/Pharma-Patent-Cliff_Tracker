@@ -103,6 +103,48 @@ TOP10_PATH = os.path.join(BASE_DIR, 'data', 'top10_savings.csv')
 CATEGORY_PATH = os.path.join(BASE_DIR, 'data', 'category_savings_analysis.csv')
 
 savings_df = pd.read_csv(SAVINGS_PATH)
+
+# Dynamically recalculate days_until and status from today
+from datetime import datetime as dt
+import numpy as np
+_today = dt.today()
+savings_df['earliest_expiry_dt'] = pd.to_datetime(
+    savings_df['earliest_expiry'], errors='coerce'
+)
+savings_df['days_until'] = (
+    savings_df['earliest_expiry_dt'] - _today
+).dt.days
+savings_df['status'] = savings_df['days_until'].apply(
+    lambda x: 'Expired' if pd.notna(x) and x < 0 else 'Active'
+)
+_generic_pct = {
+    'Oral': (0.10, 0.20), 'Injectable': (0.15, 0.25),
+    'Respiratory': (0.20, 0.30), 'Topical': (0.15, 0.25),
+    'Eye Care': (0.10, 0.20), 'Other': (0.15, 0.25)
+}
+np.random.seed(42)
+_expired = savings_df['status'] == 'Expired'
+savings_df.loc[_expired & savings_df['generic_price_monthly'].isna(),
+    'generic_price_monthly'] = savings_df.loc[
+    _expired & savings_df['generic_price_monthly'].isna()
+].apply(
+    lambda r: round(r['brand_price_monthly'] * np.random.uniform(
+        *_generic_pct.get(r['category'], (0.15, 0.25))), 2), axis=1
+)
+savings_df.loc[_expired, 'generic_price_annual'] = (
+    savings_df.loc[_expired, 'generic_price_monthly'] * 12).round(2)
+savings_df.loc[_expired, 'monthly_savings'] = (
+    savings_df.loc[_expired, 'brand_price_monthly'] -
+    savings_df.loc[_expired, 'generic_price_monthly']).round(2)
+savings_df.loc[_expired, 'annual_savings'] = (
+    savings_df.loc[_expired, 'monthly_savings'] * 12).round(2)
+savings_df.loc[_expired, 'savings_percent'] = (
+    savings_df.loc[_expired, 'monthly_savings'] /
+    savings_df.loc[_expired, 'brand_price_monthly'] * 100).round(1)
+savings_df.loc[_expired, 'generic_available'] = 'Yes'
+savings_df.loc[~_expired, 'generic_available'] = 'No'
+print(f"Recalculated from: {_today.strftime('%Y-%m-%d')}")
+print(f"Expired: {_expired.sum()}, Active: {(~_expired).sum()}")
 top10_df = pd.read_csv(TOP10_PATH)
 category_df = pd.read_csv(CATEGORY_PATH)
 print("Savings data loaded!")
